@@ -50,7 +50,7 @@ func NoSplit(message string) []string { return []string{message} }
 
 var _ Splitter = NoSplit
 
-// FieldsFuncSplitter creates a new Splitter that splits, as if f was handed
+// FieldsFuncSplitter creates a new Splitter that splits, as if it was handed
 // to strings.FieldsFunc.
 func FieldsFuncSplitter(f func(rune) bool) Splitter {
 	return func(message string) []string {
@@ -64,8 +64,13 @@ func StaticDelay(d time.Duration) DelayFunc {
 }
 
 // RandomizedDelay returns a delay that consists of a fixed character-based
-// delay.
+// delay and an additional randomized delay constructed randomFactor.
+// randomFactor is a number between 0 and 1.0.
 //
+// It will be used to generate a random multiplier within the range of
+// randomFactor, which is then used to create (or substract) an extra delay.
+// This means the returned delay will be (len(message) * runeDelay +
+// len(message) * runeDelay * randomFactor).
 func RandomizedDelay(runeDelay time.Duration, randomFactor float64) DelayFunc {
 	return func(message string) time.Duration {
 		d := float64(int(runeDelay) * len(message))

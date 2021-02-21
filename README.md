@@ -2,10 +2,9 @@
 <h1>humano</h1>
 
 [![Go Reference](https://pkg.go.dev/badge/github.com/mavolin/humano.svg)](https://pkg.go.dev/github.com/mavolin/humano)
-[![GitHub Workflow Status (branch)](https://img.shields.io/github/workflow/status/mavolin/adam/Test/develop?label=tests)](https://github.com/mavolin/humano/actions)
-[![codecov](https://codecov.io/gh/mavolin/adam/branch/develop/graph/badge.svg?token=3qRIAudu4r)](https://codecov.io/gh/mavolin/adam)
-[![Go Report Card](https://goreportcard.com/badge/github.com/mavolin/adam)](https://goreportcard.com/report/github.com/mavolin/adam)
-[![License](https://img.shields.io/github/license/mavolin/dismock)](https://github.com/mavolin/dismock/blob/v2/LICENSE)
+[![GitHub Workflow Status (branch)](https://img.shields.io/github/workflow/status/mavolin/humano/Test/develop?label=tests)](https://github.com/mavolin/humano/actions)
+[![Go Report Card](https://goreportcard.com/badge/github.com/mavolin/humano)](https://goreportcard.com/report/github.com/mavolin/humano)
+[![License](https://img.shields.io/github/license/mavolin/humano)](https://github.com/mavolin/humano/blob/develop/LICENSE)
 </div>
 
 ---

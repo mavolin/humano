@@ -1,83 +1,113 @@
-// Package replier provides the "human" replier.
+// Package replier provides the delayed replier.
 package replier
 
 import (
 	"context"
-	"math/rand"
-	"strings"
 	"time"
+
+	"github.com/diamondburned/arikawa/v2/api"
+	"github.com/diamondburned/arikawa/v2/discord"
+	"github.com/mavolin/adam/pkg/errors"
+	"github.com/mavolin/adam/pkg/plugin"
+	"github.com/mavolin/disstate/v3/pkg/state"
 )
 
-func init() {
-	rand.Seed(time.Now().Unix())
+type replier struct {
+	*Options
+
+	s      *state.State
+	ctx    context.Context
+	cancel func()
 }
 
-type (
-	replier struct {
-		options *Options
-		ctx     context.Context
-	}
+// Cancel cancels the replier, making ongoing calls to one of the Reply methods
+// return errors.Abort.
+func Cancel(ctx *plugin.Context) { get(ctx).cancel() }
 
-	// Options holds the configuration of the replier.
-	Options struct {
-		// DefaultDelayFunc is the DelayFunc used if no replacement was
-		// provided.
-		//
-		// Default: RandomizedDelay(500*time.Millesecond, 0.1)
-		DefaultDelayFunc DelayFunc
-		// Splitter is the Splitter used to split messages.
-		//
-		// Default: NoSplit
-		Splitter Splitter
-		// NoTyping specifies that no typing event shall be sent.
-		//
-		// Default: false
-		NoTyping bool
-	}
-
-	// DelayFunc is the function type used to calculate how long a specific
-	// message shall be delayed.
-	DelayFunc func(message string) time.Duration
-	// Splitter is the function used to split messages into smaller ones.
-	Splitter func(message string) []string
-)
-
-func (o *Options) fillDefaults() {
-	if o.DefaultDelayFunc == nil {
-		o.DefaultDelayFunc = RandomizedDelay(500*time.Millisecond, 0.1)
-	}
-
-	if o.Splitter == nil {
-		o.Splitter = NoSplit
-	}
+// Reply sends a textual reply in the invoking channel.
+// The passed content may be split in accordance with the SplitterFunc defined
+// in the replier's Options.
+func Reply(ctx *plugin.Context, content string) ([]discord.Message, error) {
+	return ReplyWithDelay(ctx, content, nil)
 }
 
-// NoSplit is a Splitter that never splits a message.
-func NoSplit(message string) []string { return []string{message} }
+// ReplyWithDelay is the same as Reply, but uses the passed DelayFunc
+// instead of the replier's default.
+func ReplyWithDelay(ctx *plugin.Context, content string, f DelayFunc) ([]discord.Message, error) {
+	r := get(ctx)
 
-var _ Splitter = NoSplit
-
-// FieldsFuncSplitter creates a new Splitter that splits, as if f was handed
-// to strings.FieldsFunc.
-func FieldsFuncSplitter(f func(rune) bool) Splitter {
-	return func(message string) []string {
-		return strings.FieldsFunc(message, f)
+	if f == nil {
+		f = r.DefaultDelayFunc
 	}
+
+	return r.reply(r.s, ctx, ctx.ChannelID, ctx.ReplyMessage, content, f)
 }
 
-// StaticDelay is a DelayFunc that always returns the same delay.
-func StaticDelay(d time.Duration) DelayFunc {
-	return func(string) time.Duration { return d }
+// ReplyDM sends a textual reply in a direct message channel with the invoking
+// user.
+// The passed content may be split in accordance with the SplitterFunc defined
+// in the replier's Options.
+func ReplyDM(ctx *plugin.Context, content string) ([]discord.Message, error) {
+	return ReplyDMWithDelay(ctx, content, nil)
 }
 
-// RandomizedDelay returns a delay that consists of a fixed character-based
-// delay.
-//
-func RandomizedDelay(runeDelay time.Duration, randomFactor float64) DelayFunc {
-	return func(message string) time.Duration {
-		d := float64(int(runeDelay) * len(message))
-		d += d * ((2 * rand.Float64() * randomFactor) - randomFactor)
+// ReplyDMWithDelay is the same as Reply, but uses the passed DelayFunc
+// instead of the replier's default.
+func ReplyDMWithDelay(ctx *plugin.Context, content string, f DelayFunc) ([]discord.Message, error) {
+	r := get(ctx)
 
-		return time.Duration(d)
+	dm, err := r.s.CreatePrivateChannel(ctx.User.ID)
+	if err != nil {
+		return nil, errors.WithStack(err)
 	}
+
+	if f == nil {
+		f = r.DefaultDelayFunc
+	}
+
+	return r.reply(r.s, ctx, dm.ID, ctx.ReplyMessageDM, content, f)
+}
+
+type sendFunc func(data api.SendMessageData) (*discord.Message, error)
+
+func (r *replier) reply(
+	s *state.State, pctx *plugin.Context, channelID discord.ChannelID, f sendFunc, content string,
+	delayFunc DelayFunc,
+) ([]discord.Message, error) {
+	select {
+	case <-r.ctx.Done():
+		return nil, errors.Abort
+	default:
+	}
+
+	contents := r.Splitter(content)
+
+	msgs := make([]discord.Message, len(contents))
+
+	for _, c := range contents {
+		stopTyping := func() {}
+		if !r.NoTyping {
+			var ctx context.Context
+
+			ctx, stopTyping = context.WithCancel(r.ctx)
+			go startTyping(ctx, s, pctx, channelID)
+		}
+
+		select {
+		case <-r.ctx.Done():
+			stopTyping()
+			return msgs, errors.Abort
+		case <-time.After(delayFunc(c)):
+		}
+
+		msg, err := f(api.SendMessageData{Content: c})
+		stopTyping()
+		if err != nil {
+			return msgs, nil
+		}
+
+		msgs = append(msgs, *msg)
+	}
+
+	return msgs, nil
 }
